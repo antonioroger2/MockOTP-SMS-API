@@ -9,10 +9,12 @@ function sanitizePhoneNumber(phone: string) {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { phone: string } }
+  { params }: { params: Promise<{ phone: string }> }
 ) {
   try {
-    const phone = params.phone;
+    // Await params (Next.js 15 requirement)
+    const { phone } = await params;
+    
     if (!phone) {
       return NextResponse.json(
         { error: 'Phone number is required' },
@@ -25,9 +27,42 @@ export async function GET(
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      const data = docSnap.data() as MessageDocument;
-      // The messages are already stored in descending order of timestamp
-      return NextResponse.json(data.messages || []);
+      const data = docSnap.data();
+
+      // 1. Check for the "Correct" Simulator Array Format
+      if (data.messages && Array.isArray(data.messages)) {
+        return NextResponse.json(data.messages);
+      }
+
+      // 2. ADAPTER: Handle the "Current Server" Format (sim_message string)
+      // Your server writes: { sim_message: "123456 is your OTP.", expires_at: ... }
+      if (data.sim_message && typeof data.sim_message === 'string') {
+        
+        // Extract the code (first 6 chars of the string)
+        const code = data.sim_message.substring(0, 6);
+        
+        // Calculate timestamp (Server sets expires_at to 5 mins in future)
+        // We assume created_at was 5 mins (300 seconds) ago relative to expiry
+        const expiresAtSeconds = data.expires_at || (Date.now() / 1000 + 300);
+        const timestampMs = (expiresAtSeconds - 300) * 1000;
+
+        // Create a fake Message object that the UI expects
+        const syntheticMessage: Message = {
+          id: 'latest-otp', // Static ID since we only have one
+          text: data.sim_message,
+          type: 'otp',
+          timestamp: timestampMs,
+          data: {
+            code: code,
+            validity: '5 minutes'
+          }
+        };
+
+        // Return it as an array
+        return NextResponse.json([syntheticMessage]);
+      }
+
+      return NextResponse.json([]);
     } else {
       return NextResponse.json([]);
     }
