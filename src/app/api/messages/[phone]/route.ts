@@ -23,7 +23,8 @@ export async function GET(
       );
     }
 
-    constOX sanitizedPhone = sanitizePhoneNumber(phone);
+    // FIX: Changed 'constOX' to 'const'
+    const sanitizedPhone = sanitizePhoneNumber(phone);
     const docRef = doc(db, 'otp', sanitizedPhone);
     const docSnap = await getDoc(docRef);
 
@@ -31,13 +32,10 @@ export async function GET(
       const data = docSnap.data();
       const messages: Message[] = [];
 
-      // New Structure: 
-      // otp -> {phone} -> { sim_message: { text: "..." }, expires_at: 1234567890, ... }
+
       if (data.sim_message && typeof data.sim_message === 'object' && data.sim_message.text) {
         
         const expiresAtSeconds = typeof data.expires_at === 'number' ? data.expires_at : Math.floor(Date.now() / 1000);
-        // Calculate creation time: ExpiresAt - 5 minutes (300 seconds)
-        // Convert to milliseconds for JS Date
         const timestamp = (expiresAtSeconds - 300) * 1000;
 
         const simpleMessage: Message = {
@@ -49,8 +47,6 @@ export async function GET(
         messages.push(simpleMessage);
       }
 
-      // Sort by timestamp descending (newest first) or ascending as preferred. 
-      // Dashboard currently sorts ascending.
       return NextResponse.json(messages);
     } else {
       return NextResponse.json([]);
