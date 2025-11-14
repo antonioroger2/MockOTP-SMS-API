@@ -14,7 +14,6 @@ export async function GET(
   { params }: { params: Promise<{ phone: string }> }
 ) {
   try {
-    // In Next.js 15+, params is a Promise
     const { phone } = await params;
     
     if (!phone) {
@@ -24,45 +23,35 @@ export async function GET(
       );
     }
 
-    const sanitizedPhone = sanitizePhoneNumber(phone);
+    constOX sanitizedPhone = sanitizePhoneNumber(phone);
     const docRef = doc(db, 'otp', sanitizedPhone);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
       const data = docSnap.data();
+      const messages: Message[] = [];
 
-      // 1. Support Standard Simulator Format (Array of messages)
-      if (data.messages && Array.isArray(data.messages)) {
-        return NextResponse.json(data.messages);
-      }
-
-      // 2. Support Your Server's Format (Single string 'sim_message')
-      // Server writes: { sim_message: "123456 is your OTP.", expires_at: ... }
-      if (data.sim_message && typeof data.sim_message === 'string') {
+      // New Structure: 
+      // otp -> {phone} -> { sim_message: { text: "..." }, expires_at: 1234567890, ... }
+      if (data.sim_message && typeof data.sim_message === 'object' && data.sim_message.text) {
         
-        // Extract the code (assumes format "123456 is your OTP.")
-        const code = data.sim_message.split(' ')[0] || '------';
-        
-        // Estimate timestamp (ExpiresAt - 5 minutes, or just current time)
-        // Defaulting to current time for simplicity in display
-        const timestamp = Date.now(); 
+        const expiresAtSeconds = typeof data.expires_at === 'number' ? data.expires_at : Math.floor(Date.now() / 1000);
+        // Calculate creation time: ExpiresAt - 5 minutes (300 seconds)
+        // Convert to milliseconds for JS Date
+        const timestamp = (expiresAtSeconds - 300) * 1000;
 
-        const syntheticMessage: Message = {
-          id: 'latest-otp-generated', // Static ID as we only have one
-          text: data.sim_message,
-          type: 'otp',
+        const simpleMessage: Message = {
+          id: data.latest_secret || `msg-${timestamp}`, // Use secret or generic ID
+          text: data.sim_message.text,
           timestamp: timestamp,
-          data: {
-            code: code,
-            validity: '5 minutes'
-          }
         };
 
-        // Return as an array so the UI dashboard can map over it
-        return NextResponse.json([syntheticMessage]);
+        messages.push(simpleMessage);
       }
 
-      return NextResponse.json([]);
+      // Sort by timestamp descending (newest first) or ascending as preferred. 
+      // Dashboard currently sorts ascending.
+      return NextResponse.json(messages);
     } else {
       return NextResponse.json([]);
     }
